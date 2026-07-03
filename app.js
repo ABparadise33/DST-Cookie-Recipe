@@ -34,30 +34,42 @@ const FILLER_EXCLUDED_TAGS = new Set([
 ]);
 
 const STAT_META = {
-	priority: { label: 'priority' },
-	hunger: { icon: 'hunger', label: '飽食' },
-	health: { icon: 'health', label: '生命' },
-	sanity: { icon: 'sanity', label: '理智' },
-	cook: { label: 'cook' },
+	health: {
+		iconUrl: 'https://dontstarve.wiki.gg/wiki/Special:Redirect/file/Health_Meter.png',
+		label: '生命',
+	},
+	hunger: {
+		iconUrl: 'https://dontstarve.wiki.gg/wiki/Special:Redirect/file/Hunger_Meter.png',
+		label: '飽食',
+	},
+	sanity: {
+		iconUrl: 'https://dontstarve.wiki.gg/wiki/Special:Redirect/file/Sanity_Meter.png',
+		label: '理智',
+	},
 };
 
-const STAT_ICON_PATHS = {
-	hunger: [
-		'M5 3v7',
-		'M8 3v7',
-		'M3 3v5a3.5 3.5 0 0 0 7 0V3',
-		'M6.5 10v11',
-		'M17 3v18',
-		'M17 3c2.6 1.8 4 4.7 4 8h-4',
-	],
-	health: [
-		'M12 21s-7.2-4.4-9.2-8.7C1.2 8.8 3.2 5 6.8 5c2 0 3.3 1.1 5.2 3.2C13.9 6.1 15.2 5 17.2 5c3.6 0 5.6 3.8 4 7.3C19.2 16.6 12 21 12 21z',
-	],
-	sanity: [
-		'M20 12a8 8 0 1 1-8-8',
-		'M16 12a4 4 0 1 1-4-4',
-		'M12 12h.01',
-	],
+const TAG_META = {
+	dairy: { label: '乳製係數', representativeId: 'goatmilk' },
+	egg: { label: '蛋類係數', representativeId: 'bird_egg' },
+	fat: { label: '油脂係數', representativeId: 'butter' },
+	fish: { label: '魚類係數', representativeId: 'fishmeat' },
+	frozen: { label: '冰凍係數', representativeId: 'ice' },
+	fruit: { label: '水果係數', representativeId: 'berries' },
+	inedible: { label: '不可食用', representativeId: 'twigs' },
+	magic: { label: '魔法係數', representativeId: 'nightmarefuel' },
+	meat: { label: '肉類係數', representativeId: 'meat' },
+	monster: { label: '怪物係數', representativeId: 'monstermeat' },
+	seed: { label: '種子係數', representativeId: 'acorn' },
+	sweetener: { label: '甜味係數', representativeId: 'honey' },
+	veggie: { label: '蔬菜係數', representativeId: 'carrot' },
+};
+
+const NAME_ALIASES = {
+	cactus_flower: 'cactusflower',
+	cactus_meat: 'cactusmeat',
+	lobster: 'wobster',
+	smallmeat: 'morsel',
+	wobster_sheller_land: 'wobster',
 };
 
 const NAME_VARIANTS = {
@@ -156,12 +168,14 @@ function prepareData(data) {
 		displayName(a).localeCompare(displayName(b), 'zh-Hant'),
 	);
 	const ingredientMap = new Map(ingredients.map(ingredient => [ingredient.key, ingredient]));
+	const ingredientById = new Map(ingredients.map(ingredient => [ingredient.id, ingredient]));
 	const recipeList = Object.values(data.recipes).sort(compareRecipesForCooking);
 
 	return {
 		...data,
 		ingredients,
 		ingredientMap,
+		ingredientById,
 		edgeMap,
 		standardRecipeList: recipeList.filter(recipe => recipe.mode === 'together'),
 		warlyRecipeList: recipeList.filter(recipe =>
@@ -594,8 +608,9 @@ function sortedEdges(edges, selectedIngredients) {
 			return recipeB.priority - recipeA.priority || displayName(recipeA).localeCompare(displayName(recipeB), 'zh-Hant');
 		}
 
-		if (state.sort === 'hunger') {
-			return Number(recipeB.hunger || 0) - Number(recipeA.hunger || 0) || displayName(recipeA).localeCompare(displayName(recipeB), 'zh-Hant');
+		if (['health', 'hunger', 'sanity'].includes(state.sort)) {
+			return Number(recipeB[state.sort] || 0) - Number(recipeA[state.sort] || 0) ||
+				displayName(recipeA).localeCompare(displayName(recipeB), 'zh-Hant');
 		}
 
 		return (
@@ -619,9 +634,6 @@ function renderRecipeCard(edge, selectedIngredients) {
 	const recipe = state.data.recipes[edge.recipeId];
 	const node = els.recipeTemplate.content.firstElementChild.cloneNode(true);
 	const badge = node.querySelector('.badge');
-	const combo = edge.exampleCombo;
-	const selectedIds = new Set(selectedIngredients.map(ingredient => ingredient.id));
-	const selectedKeys = new Set(selectedIngredients.map(ingredient => ingredient.key));
 	const directMatches = directMatchedIngredients(recipe, selectedIngredients);
 	const matchRow = node.querySelector('.match-row');
 
@@ -634,29 +646,240 @@ function renderRecipeCard(edge, selectedIngredients) {
 		? `指定：${directMatches.map(displayName).join('、')}`
 		: '係數 / 填充';
 	matchRow.classList.toggle('is-direct', directMatches.length > 0);
-	node.querySelector('.method-row').append(renderMethod(recipe));
 	node.querySelector('.recipe-stats').append(renderStats(recipe));
-	node.querySelector('.combo-row').append(renderCombo(combo, selectedIds, selectedKeys));
+	node.querySelector('.recipe-meta').append(renderRecipeMeta(recipe));
+	node.querySelector('.recipe-requirements').append(renderRequirementBoard(recipe));
 
 	return node;
 }
 
-function renderMethod(recipe) {
+function renderRecipeMeta(recipe) {
 	const fragment = document.createDocumentFragment();
-	const label = document.createElement('span');
-	const lines = recipe.requirementLines?.length ? recipe.requirementLines : ['任意食材'];
-	label.className = 'method-label';
-	label.textContent = '做法';
-	fragment.append(label);
+	const metaItems = [
+		['Priority', recipe.priority],
+		['Cook', recipe.cooktime],
+	];
 
-	for (const line of lines) {
+	for (const [label, value] of metaItems) {
+		if (value === '' || value === null || value === undefined) {
+			continue;
+		}
+
 		const chip = document.createElement('span');
-		chip.className = 'method-chip';
-		chip.textContent = line;
+		chip.className = 'meta-chip';
+		chip.textContent = `${label} ${formatNumber(value)}`;
 		fragment.append(chip);
 	}
 
 	return fragment;
+}
+
+function renderRequirementBoard(recipe) {
+	const fragment = document.createDocumentFragment();
+	const title = document.createElement('div');
+	title.className = 'requirement-title';
+	title.textContent = '料理條件';
+	fragment.append(title);
+
+	const list = document.createElement('div');
+	list.className = 'requirement-list';
+	const conditions = visualRequirements(recipe.requirementRules || [], recipe);
+
+	for (const condition of conditions) {
+		list.append(renderRequirementChip(condition));
+	}
+
+	if (conditions.length === 0) {
+		const chip = document.createElement('span');
+		chip.className = 'requirement-chip';
+		chip.textContent = '任意食材';
+		list.append(chip);
+	}
+
+	fragment.append(list);
+	return fragment;
+}
+
+function renderRequirementChip(condition) {
+	const chip = document.createElement('span');
+	chip.className = 'requirement-chip';
+	chip.classList.toggle('is-ban', condition.banned);
+	chip.classList.toggle('is-soft-limit', condition.softLimit);
+
+	for (const item of condition.iconItems || []) {
+		const icon = renderImage(item, 'requirement-icon');
+		chip.append(icon);
+	}
+
+	const label = document.createElement('span');
+	label.textContent = condition.label;
+	chip.append(label);
+	return chip;
+}
+
+function visualRequirements(rules, recipe) {
+	return rules
+		.map(rule => visualRequirement(rule, recipe))
+		.flat()
+		.filter(Boolean);
+}
+
+function visualRequirement(rule, recipe) {
+	if (!rule) {
+		return null;
+	}
+
+	if (rule.type === 'NOTTest') {
+		const target = visualTarget(rule.item, recipe);
+		if (!target) {
+			return null;
+		}
+
+		return {
+			...target,
+			banned: true,
+			label: `不可放 ${banLabel(target.label)}`,
+		};
+	}
+
+	if (rule.type === 'ORTest') {
+		const simplified = simplifiedLimitRequirement(rule, recipe);
+		if (simplified) {
+			return simplified;
+		}
+
+		const item1 = visualRequirement(rule.item1, recipe);
+		const item2 = visualRequirement(rule.item2, recipe);
+		const options = [item1, item2].flat().filter(Boolean);
+		if (options.length === 0) {
+			return null;
+		}
+
+		return {
+			iconItems: uniqueIconItems(options.flatMap(option => option.iconItems || [])),
+			label: options.map(option => option.label).join(' 或 '),
+		};
+	}
+
+	if (rule.type === 'ANDTest') {
+		return [visualRequirement(rule.item1, recipe), visualRequirement(rule.item2, recipe)]
+			.flat()
+			.filter(Boolean);
+	}
+
+	return visualTarget(rule, recipe);
+}
+
+function simplifiedLimitRequirement(rule, recipe) {
+	const items = [rule.item1, rule.item2];
+	const positiveLimit = items.find(item => !item?.cancel && item?.qty?.op);
+	const negative = items.find(item => item?.type === 'NOTTest' && item.item);
+
+	if (!positiveLimit || !negative) {
+		return null;
+	}
+
+	if (requirementIdentity(positiveLimit) !== requirementIdentity(negative.item)) {
+		return null;
+	}
+
+	return visualTarget(positiveLimit, recipe);
+}
+
+function requirementIdentity(rule) {
+	if (rule?.tag) {
+		return `tag:${rule.tag}`;
+	}
+
+	if (rule?.name) {
+		return `name:${rule.name}`;
+	}
+
+	return '';
+}
+
+function visualTarget(rule, recipe) {
+	if (!rule) {
+		return null;
+	}
+
+	if (rule.type === 'ORTest' || rule.type === 'ANDTest') {
+		return visualRequirement(rule, recipe);
+	}
+
+	if (rule.tag) {
+		const meta = TAG_META[rule.tag] || { label: `${rule.tag} 係數` };
+		return {
+			iconItems: [representativeIngredient(meta.representativeId)].filter(Boolean),
+			label: `${meta.label} ${formatRuleQty(rule.qty, 'tag')}`,
+			softLimit: ['<', '<='].includes(rule.qty?.op),
+		};
+	}
+
+	if (rule.name) {
+		const item = ingredientForRuleName(rule.name);
+		return {
+			iconItems: [item].filter(Boolean),
+			label: `${item?.zhName || item?.name || prettifyId(rule.name)} ${formatRuleQty(rule.qty, 'name')}`,
+			softLimit: ['<', '<='].includes(rule.qty?.op),
+		};
+	}
+
+	return null;
+}
+
+function representativeIngredient(id) {
+	if (!id) {
+		return null;
+	}
+
+	return state.data.ingredientById.get(id) || null;
+}
+
+function ingredientForRuleName(name) {
+	const id = NAME_ALIASES[name] || name;
+	return state.data.ingredientById.get(id) ||
+		state.data.ingredientById.get(`${id}_cooked`) ||
+		null;
+}
+
+function uniqueIconItems(items) {
+	const seen = new Set();
+	const unique = [];
+
+	for (const item of items) {
+		if (!item || seen.has(item.id)) {
+			continue;
+		}
+
+		seen.add(item.id);
+		unique.push(item);
+	}
+
+	return unique;
+}
+
+function formatRuleQty(qty, type) {
+	if (qty?.op) {
+		if (type === 'tag' && ['<', '<='].includes(qty.op)) {
+			return `> 0 且 ${qty.op} ${formatNumber(qty.value)}`;
+		}
+
+		return `${qty.op} ${formatNumber(qty.value)}`;
+	}
+
+	return type === 'tag' ? '> 0' : '>= 1';
+}
+
+function banLabel(label) {
+	return label.replace(/ (?:> 0|>= 1)$/, '');
+}
+
+function prettifyId(id) {
+	return id
+		.replace(/_cooked$/, '')
+		.replace(/_/g, ' ')
+		.replace(/\b\w/g, letter => letter.toUpperCase());
 }
 
 function renderSharedTags(selectedIngredients) {
@@ -728,11 +951,9 @@ function renderImageFallback(item, className) {
 function renderStats(recipe) {
 	const fragment = document.createDocumentFragment();
 	const stats = [
-		['priority', recipe.priority],
-		['hunger', recipe.hunger],
 		['health', recipe.health],
+		['hunger', recipe.hunger],
 		['sanity', recipe.sanity],
-		['cook', recipe.cooktime],
 	];
 
 	for (const [id, value] of stats) {
@@ -742,56 +963,30 @@ function renderStats(recipe) {
 
 		const meta = STAT_META[id];
 		const chip = document.createElement('span');
-		chip.className = 'stat-chip';
-		if (meta?.icon) {
-			chip.classList.add('has-icon', `is-${id}`);
-			chip.title = `${meta.label} ${formatNumber(value)}`;
-			chip.setAttribute('aria-label', `${meta.label} ${formatNumber(value)}`);
-			chip.append(renderStatIcon(meta.icon));
-			const valueNode = document.createElement('span');
-			valueNode.textContent = formatNumber(value);
-			chip.append(valueNode);
-		} else {
-			chip.textContent = `${meta?.label || id} ${formatNumber(value)}`;
-		}
+		chip.className = `stat-chip is-${id}`;
+		chip.title = `${meta.label} ${formatNumber(value)}`;
+		chip.setAttribute('aria-label', `${meta.label} ${formatNumber(value)}`);
+		chip.append(renderStatusIcon(meta, 'stat-icon'));
+		const valueNode = document.createElement('span');
+		valueNode.textContent = formatSignedNumber(value);
+		chip.append(valueNode);
 		fragment.append(chip);
 	}
 
 	return fragment;
 }
 
-function renderStatIcon(icon) {
-	const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-	svg.setAttribute('class', 'stat-icon');
-	svg.setAttribute('viewBox', '0 0 24 24');
-	svg.setAttribute('aria-hidden', 'true');
-	svg.setAttribute('focusable', 'false');
-
-	for (const d of STAT_ICON_PATHS[icon] || []) {
-		const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-		path.setAttribute('d', d);
-		svg.append(path);
-	}
-
-	return svg;
-}
-
-function renderCombo(combo, selectedIds, selectedKeys) {
-	const fragment = document.createDocumentFragment();
-	for (const ingredient of combo) {
-		const chip = document.createElement('span');
-		chip.className = 'combo-chip';
-		chip.classList.toggle(
-			'is-selected-source',
-			selectedIds.has(ingredient.id) || selectedKeys.has(ingredient.key),
-		);
-		chip.append(renderImage(ingredient, 'combo-chip-image'));
-		const label = document.createElement('span');
-		label.textContent = ingredient.zhName || ingredient.name;
-		chip.append(label);
-		fragment.append(chip);
-	}
-	return fragment;
+function renderStatusIcon(meta, className) {
+	const image = document.createElement('img');
+	image.className = className;
+	image.src = meta.iconUrl;
+	image.alt = '';
+	image.loading = 'lazy';
+	image.decoding = 'async';
+	image.addEventListener('error', () => {
+		image.replaceWith(renderImageFallback({ zhName: meta.label, name: meta.label }, className));
+	});
+	return image;
 }
 
 function displayName(item) {
@@ -808,6 +1003,15 @@ function formatNumber(value) {
 	}
 
 	return Number(value.toFixed(2));
+}
+
+function formatSignedNumber(value) {
+	const formatted = formatNumber(value);
+	if (typeof value !== 'number' || value <= 0) {
+		return formatted;
+	}
+
+	return `+${formatted}`;
 }
 
 function escapeHtml(value) {

@@ -9,9 +9,11 @@ A static GitHub Pages site for reverse-looking-up Don't Starve Together Crock Po
 - Select up to four ingredients and view recipes that can be made by a real four-slot combo containing all selected ingredients.
 - Prioritize recipes that explicitly require the selected ingredient before coefficient/filler matches.
 - Show readable Chinese recipe requirements such as `肉類係數 >= 3` and `不可放 不可食用`.
+- Render recipe requirement chips with ingredient/tag icons instead of random example filler combos.
 - Show ingredient and recipe icons from the Food Guide image set.
+- Show health, hunger, and sanity with Don't Starve wiki status icons.
 - Keep English names while adding Traditional Chinese `zhName` fields.
-- Filter Warly-only recipes and sort by name, priority, or hunger.
+- Filter Warly-only recipes and sort by name, hunger, health, sanity, or priority.
 
 ## Local Preview
 
@@ -56,4 +58,12 @@ Image assets are loaded from:
 
 ```text
 https://bluehexagons.github.io/foodguide/img/
+```
+
+Status icons are loaded through wiki.gg file redirects:
+
+```text
+https://dontstarve.wiki.gg/wiki/Special:Redirect/file/Health_Meter.png
+https://dontstarve.wiki.gg/wiki/Special:Redirect/file/Hunger_Meter.png
+https://dontstarve.wiki.gg/wiki/Special:Redirect/file/Sanity_Meter.png
 ```
